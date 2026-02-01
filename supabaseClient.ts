@@ -2,8 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
 import { UserRole } from './types';
 
-const supabaseUrl = 'https://bnwyelbfiamcgkjgpvzi.supabase.co';
-const supabaseAnonKey = 'sb_publishable_-0tD33KfsGeeWcwMbmkXKA_adrRR_-B';
+// Use environment variables defined in Hostinger/Vite, fallback to hardcoded if missing
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://bnwyelbfiamcgkjgpvzi.supabase.co';
+const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_-0tD33KfsGeeWcwMbmkXKA_adrRR_-B';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -67,8 +68,6 @@ export async function login(email: string, password: string) {
     }
 
     // 2. Verificar senha
-    // Nota: Se o usuário foi criado manualmente no banco sem hash, isso falhará se não tratarmos.
-    // Mas assumindo que novos usuários usarão o fluxo de registro:
     if (!user.password) {
          return { success: false, error: 'Usuário sem senha definida. Contate o administrador.' };
     }
@@ -98,7 +97,6 @@ export async function login(email: string, password: string) {
 
 export function logout() {
   localStorage.removeItem('currentUser');
-  // Opcional: Recarregar a página ou deixar o estado do React lidar com isso
 }
 
 // =====================================================
