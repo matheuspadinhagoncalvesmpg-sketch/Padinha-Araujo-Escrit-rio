@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import bcrypt from 'bcryptjs';
 import { UserRole } from './types';
 
 // Use environment variables defined in Hostinger/Vite, fallback to hardcoded if missing
@@ -19,18 +18,33 @@ export async function registerUser(
   role: UserRole = UserRole.INTERN
 ) {
   try {
-    // 1. Criar hash da senha
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
+    // 1. Registrar no Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+          role,
+          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0e1b2e&color=fff`
+        }
+      }
+    });
 
-    // 2. Inserir usuário no banco
-    const { data, error } = await supabase
+    if (authError) throw authError;
+
+    if (!authData.user) {
+      throw new Error('Erro ao criar usuário no Auth.');
+    }
+
+    // 2. Inserir usuário na tabela users
+    const { data: userData, error: userError } = await supabase
       .from('users')
       .insert([
         {
+          id: authData.user.id, // Use the Auth user ID
           name,
           email,
-          password: passwordHash,
           role,
           avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0e1b2e&color=fff`
         }
@@ -38,12 +52,25 @@ export async function registerUser(
       .select()
       .single();
 
-    if (error) throw error;
+    if (userError) {
+      console.error('Erro ao inserir na tabela users:', userError);
+      // Even if inserting into users table fails (e.g. due to RLS), we return the auth user
+      // The AppContext might need to handle this gracefully
+      const fallbackUser = {
+        id: authData.user.id,
+        name,
+        email,
+        role,
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0e1b2e&color=fff`
+      };
+      localStorage.setItem('currentUser', JSON.stringify(fallbackUser));
+      return { success: true, user: fallbackUser };
+    }
 
     // 3. Salvar sessão no localStorage
-    localStorage.setItem('currentUser', JSON.stringify(data));
+    localStorage.setItem('currentUser', JSON.stringify(userData));
 
-    return { success: true, user: data };
+    return { success: true, user: userData };
   } catch (error: any) {
     console.error('Erro ao registrar:', error);
     return { success: false, error: error.message };
@@ -56,35 +83,44 @@ export async function registerUser(
 
 export async function login(email: string, password: string) {
   try {
-    // 1. Buscar usuário por email
-    const { data: user, error } = await supabase
+    // 1. Login no Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError) {
+      return { success: false, error: authError.message };
+    }
+
+    if (!authData.user) {
+      return { success: false, error: 'Erro ao fazer login.' };
+    }
+
+    // 2. Buscar usuário na tabela users
+    const { data: user, error: userError } = await supabase
       .from('users')
       .select('*')
-      .eq('email', email)
+      .eq('id', authData.user.id)
       .single();
 
-    if (error || !user) {
-      return { success: false, error: 'Email não encontrado ou erro de conexão.' };
+    let finalUser = user;
+
+    if (userError || !user) {
+      console.warn('Usuário não encontrado na tabela users, usando dados do Auth.');
+      finalUser = {
+        id: authData.user.id,
+        name: authData.user.user_metadata?.name || email.split('@')[0],
+        email: authData.user.email,
+        role: authData.user.user_metadata?.role || UserRole.INTERN,
+        avatar: authData.user.user_metadata?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(email.split('@')[0])}&background=0e1b2e&color=fff`
+      };
     }
 
-    // 2. Verificar senha
-    if (!user.password) {
-         return { success: false, error: 'Usuário sem senha definida. Contate o administrador.' };
-    }
+    // 3. Salvar sessão no localStorage
+    localStorage.setItem('currentUser', JSON.stringify(finalUser));
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
-
-    if (!passwordMatch) {
-      return { success: false, error: 'Senha incorreta.' };
-    }
-
-    // 3. Remover senha do objeto antes de salvar (segurança básica)
-    const { password: _, ...userWithoutPassword } = user;
-
-    // 4. Salvar sessão no localStorage
-    localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
-
-    return { success: true, user: userWithoutPassword };
+    return { success: true, user: finalUser };
   } catch (error: any) {
     console.error('Erro ao fazer login:', error);
     return { success: false, error: error.message };
@@ -95,7 +131,8 @@ export async function login(email: string, password: string) {
 // LOGOUT
 // =====================================================
 
-export function logout() {
+export async function logout() {
+  await supabase.auth.signOut();
   localStorage.removeItem('currentUser');
 }
 

@@ -237,7 +237,7 @@ const App: React.FC = () => {
 };
 
 // Wrapper to use hook
-const AppContent = () => {
+function AppContent() {
     return <MainLayout />
 }
 

@@ -17,7 +17,7 @@ interface AppContextType {
   // Auth Actions
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string, role: UserRole) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 
   // Data Actions
   switchUser: (userId: string) => void;
@@ -185,8 +185,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsLoading(false);
   };
 
-  const logout = () => {
-      apiLogout();
+  const logout = async () => {
+      await apiLogout();
       setCurrentUser(null);
       setIsAuthenticated(false);
       setEvents([]);
